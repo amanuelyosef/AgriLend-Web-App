@@ -1,189 +1,228 @@
-import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, ExternalLink, ChevronLeft, ChevronRight, Filter, Download } from 'lucide-react';
-import { listLoans } from '../api/loans';
-import useAsync from '../hooks/useAsync';
+import React, { useState, useEffect } from 'react';
+import Sidebar from "./Sidebar";
+import DashboardHeader from "./DashboardHeader";
+import { Plus, ExternalLink, ChevronLeft, ChevronRight, Download, Filter, X, Send, Loader2 } from 'lucide-react';
+import api, { submitLoanApplication, fetchApplications } from "../services/api";
 
-export default function LoanApplications() {
-  const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [page, setPage] = useState(1);
-  const [status, setStatus] = useState(searchParams.get('status') || '');
-  const pageSize = 10;
+const initialApplications = [];
 
-  const loans = useAsync(
-    () => listLoans({ page, page_size: pageSize, status: status || undefined }),
-    [page, status]
-  );
+export default function LoanApplications({ currentPage = "applications", onNavigate, onViewReport, onLogout, currentUser, user }) {
+  const activeUser = currentUser || user;
+  const [loans, setLoans] = useState(initialApplications);
+  const [loading, setLoading] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [farmerName, setFarmerName] = useState("");
+  const [farmName, setFarmName] = useState("");
+  const [amount, setAmount] = useState("");
+  const [cropType, setCropType] = useState("Maize");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const rows = loans.data?.items || [];
-  const total = loans.data?.total || 0;
-  const totalPages = loans.data?.total_pages || 1;
+  const [appPage, setAppPage] = useState(1);
+  const [selectedStatus, setSelectedStatus] = useState("ALL");
+  const [selectedRegion, setSelectedRegion] = useState("ALL");
+  const [selectedCrop, setSelectedCrop] = useState("ALL");
+  const [totalCount, setTotalCount] = useState(0);
 
-  const tierClass = (score) =>
-    score >= 700
-      ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
-      : score >= 600
-        ? 'text-amber-600 bg-amber-50 border-amber-200'
-        : 'text-red-600 bg-red-50 border-red-200';
+  const fetchLoans = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.append('page', appPage);
+      params.append('page_size', 10);
+      if (selectedStatus !== 'ALL') params.append('status', selectedStatus);
+      if (selectedRegion !== 'ALL') params.append('region', selectedRegion);
+      if (selectedCrop !== 'ALL') params.append('crop_type', selectedCrop);
 
-  const applyStatus = (value) => {
-    setStatus(value);
-    setPage(1);
-    if (value) setSearchParams({ status: value });
-    else setSearchParams({});
+      const res = await api.get(`/loans/?${params.toString()}`);
+      if (res && (res.items || Array.isArray(res))) {
+        const itemsList = Array.isArray(res) ? res : (res.items || []);
+        const count = Array.isArray(res) ? res.length : (res.total || itemsList.length);
+        setLoans(itemsList);
+        setTotalCount(count);
+      } else {
+        const fallbackRes = await fetchApplications();
+        if (fallbackRes && fallbackRes.success && Array.isArray(fallbackRes.data)) {
+          setLoans(fallbackRes.data);
+          setTotalCount(fallbackRes.data.length);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to fetch loans from API:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const initials = (name) =>
-    (name || '?').split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase();
+  useEffect(() => {
+    fetchLoans();
+  }, [appPage, selectedStatus, selectedRegion, selectedCrop]);
+
+  const handleResetFilters = () => {
+    setSelectedStatus("ALL");
+    setSelectedRegion("ALL");
+    setSelectedCrop("ALL");
+    setAppPage(1);
+  };
+
+  const handleNewApplicationSubmit = async (e) => {
+    e.preventDefault();
+    if (!farmerName.trim() || !amount) return;
+    setIsSubmitting(true);
+    try {
+      await submitLoanApplication({
+        farmerName,
+        farmName,
+        requested_amount: parseFloat(amount),
+        cropType,
+      });
+      setShowModal(false);
+      setFarmerName("");
+      setFarmName("");
+      setAmount("");
+      fetchLoans();
+    } catch (err) {
+      console.warn("Submit application fallback:", err);
+      setShowModal(false);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
-    <div className="flex-1 p-6 space-y-6 max-w-[1600px] w-full mx-auto">
-      <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
-        <div>
-          <p className="text-[10px] font-bold tracking-[0.25em] uppercase text-emerald-700">Credit Workflow</p>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight mt-1">Loan Applications</h2>
-          <p className="text-xs text-gray-500 mt-1">Manage and review incoming credit requests.</p>
-        </div>
+    <div className="flex h-screen w-screen bg-[#F5F7F2] overflow-hidden font-sans">
+      <Sidebar currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout} currentUser={activeUser} />
 
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50"
-          >
-            <Filter size={14} /> Filters
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (!rows.length) return alert('No applications to export');
-              const headers = ['ID', 'Farmer', 'Amount', 'Score', 'Purpose', 'Status', 'Date'];
-              const csvRows = rows.map(r => [r.id, `"${r.farmer?.full_name || r.farmer_name || ''}"`, r.requested_amount, r.credit_score_at_application, `"${r.loan_purpose}"`, r.status, r.submitted_at]);
-              const csv = [headers.join(','), ...csvRows.map(r => r.join(','))].join('\n');
-              const blob = new Blob([csv], { type: 'text/csv' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `applications_export_${new Date().toISOString().slice(0, 10)}.csv`;
-              a.click();
-            }}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50 active:bg-gray-100"
-          >
-            <Download size={14} /> Export CSV
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('/applications/new')}
-            className="bg-[#1A532E] text-white text-xs font-semibold px-4 py-2.5 rounded-lg flex items-center gap-1.5 hover:bg-[#144224] transition-colors"
-          >
-            <Plus size={14} /> Manual Entry
-          </button>
-        </div>
-      </div>
+      <div className="flex-1 h-full flex flex-col overflow-y-auto">
+        <DashboardHeader
+          searchPlaceholder="Search application IDs or farmer names..."
+          onLogout={onLogout}
+          onNavigate={onNavigate}
+          currentUser={activeUser}
+        />
 
-      <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1.5">STATUS</label>
-            <select
-              value={status}
-              onChange={(e) => applyStatus(e.target.value)}
-              className="w-full bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 text-xs outline-none focus:ring-1 focus:ring-[#1A532E] font-medium text-gray-700"
-            >
-              <option value="">All Statuses</option>
-              <option value="PENDING">Pending</option>
-              <option value="APPROVED">Approved</option>
-              <option value="REJECTED">Rejected</option>
-              <option value="DISBURSED">Disbursed</option>
-            </select>
+        <div className="flex-1 p-6 space-y-6 max-w-[1600px] w-full mx-auto">
+          <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-bold tracking-[0.25em] uppercase text-emerald-700">Credit Workflow</p>
+              <h2 className="text-2xl font-bold text-gray-900 tracking-tight mt-1">Loan Applications Queue</h2>
+              <p className="text-xs text-gray-500 mt-1">Manage and review incoming credit requests from regional agricultural sectors.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={handleResetFilters} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50 cursor-pointer"><Filter size={14} /> Reset Filters</button>
+              <button type="button" onClick={fetchLoans} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50 cursor-pointer"><Download size={14} /> Refresh List</button>
+              <button
+                type="button"
+                onClick={() => setShowModal(true)}
+                className="bg-[#1A532E] text-white text-xs font-semibold px-4 py-2.5 rounded-lg flex items-center gap-1.5 hover:bg-[#144224] transition-colors shadow-xs cursor-pointer"
+              >
+                <Plus size={14} /> Manual Entry
+              </button>
+            </div>
           </div>
-        </div>
-      </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-        {loans.loading ? (
-          <p className="text-xs text-gray-400 py-10 text-center">Loading applications...</p>
-        ) : loans.error ? (
-          <p className="text-xs text-red-500 py-10 text-center">Could not load applications: {loans.error.message}</p>
-        ) : rows.length === 0 ? (
-          <p className="text-xs text-gray-400 py-10 text-center">No applications match.</p>
-        ) : (
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-gray-200 text-xs font-bold text-gray-700 bg-white">
-                <th className="py-4 px-6 font-bold text-gray-600">Application</th>
-                <th className="py-4 px-4 font-bold text-gray-600">Credit Score</th>
-                <th className="py-4 px-4 font-bold text-gray-600">Amount Requested</th>
-                <th className="py-4 px-4 font-bold text-gray-600">Purpose</th>
-                <th className="py-4 px-4 font-bold text-gray-600">Submitted</th>
-                <th className="py-4 px-6 text-right font-bold text-gray-600">Action</th>
-              </tr>
-            </thead>
-            <tbody className="text-xs font-medium divide-y divide-gray-100 text-gray-700">
-              {rows.map((loan) => (
-                <tr key={loan.id} className="hover:bg-gray-50/40 transition-colors">
-                  <td className="py-4 px-6">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-[#EBF0EC] text-[#1A532E] text-[11px] font-bold flex items-center justify-center">
-                        {initials(loan.farmer?.full_name)}
-                      </div>
-                      <div>
-                        <p className="font-bold text-gray-900 leading-tight">{loan.farmer_name || loan.id.slice(0, 8)}</p>
-                        <p className="text-[10px] text-gray-400 font-normal mt-0.5">ID: {loan.id.slice(0, 8)}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="py-4 px-4">
-                    <span className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-wider border ${tierClass(loan.credit_score_at_application)}`}>
-                      {loan.credit_score_at_application}
-                    </span>
-                  </td>
-                  <td className="py-4 px-4 text-gray-900 font-bold">
-                    {Number(loan.requested_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="py-4 px-4 text-gray-600">{loan.loan_purpose}</td>
-                  <td className="py-4 px-4 text-gray-400 font-normal">
-                    {new Date(loan.submitted_at).toLocaleDateString()}
-                  </td>
-                  <td className="py-4 px-6 text-right">
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/applications/${loan.id}`)}
-                      className="text-[#1A532E] hover:text-[#144224] font-semibold inline-flex items-center gap-1.5 text-[11px]"
-                    >
-                      View Report <ExternalLink size={14} className="text-emerald-700" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+          {/* Filter Bar */}
+          <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-2xs space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1.5 uppercase">STATUS</label>
+                <select
+                  value={selectedStatus}
+                  onChange={(e) => { setSelectedStatus(e.target.value); setAppPage(1); }}
+                  className="w-full bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 text-xs outline-none focus:ring-1 focus:ring-[#1A532E] font-medium text-gray-700 cursor-pointer"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="PENDING">Pending</option>
+                  <option value="APPROVED">Approved</option>
+                  <option value="REJECTED">Rejected</option>
+                  <option value="DISBURSED">Disbursed</option>
+                </select>
+              </div>
 
-        <div className="bg-[#FAFBF8] border-t border-gray-100 px-6 py-3 flex items-center justify-between text-xs font-medium text-gray-500">
-          <span>
-            Showing {rows.length} of {total} applications
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="p-1.5 border border-gray-200 rounded bg-white hover:bg-gray-50 text-gray-400 disabled:opacity-40"
-            >
-              <ChevronLeft size={14} />
-            </button>
-            <span className="px-2 text-xs text-gray-600">
-              Page {page} of {totalPages || 1}
-            </span>
-            <button
-              type="button"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              className="p-1.5 border border-gray-200 rounded bg-white hover:bg-gray-50 text-gray-400 disabled:opacity-40"
-            >
-              <ChevronRight size={14} />
-            </button>
+              <div>
+                <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1.5 uppercase">CROP TYPE</label>
+                <select
+                  value={selectedCrop}
+                  onChange={(e) => { setSelectedCrop(e.target.value); setAppPage(1); }}
+                  className="w-full bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 text-xs outline-none focus:ring-1 focus:ring-[#1A532E] font-medium text-gray-700 cursor-pointer"
+                >
+                  <option value="ALL">All Crops</option>
+                  <option value="Maize">Maize</option>
+                  <option value="Coffee">Coffee</option>
+                  <option value="Sugarcane">Sugarcane</option>
+                  <option value="Teff">Teff</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Table Card */}
+          <div className="bg-white border border-gray-200 rounded-xl shadow-2xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-200 bg-[#FAFBF7] text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                    <th className="py-3 px-4">Application ID</th>
+                    <th className="py-3 px-4">Applicant Name</th>
+                    <th className="py-3 px-4">Credit Score</th>
+                    <th className="py-3 px-4">Requested Amount</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-xs font-medium text-gray-700">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-gray-400">
+                        <div className="flex items-center justify-center gap-2">
+                          <Loader2 className="animate-spin text-[#1A532E]" size={16} />
+                          <span>Loading loan application queue...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    loans.map((item) => {
+                      const status = (item.status || "").toUpperCase();
+                      return (
+                        <tr key={item.id || item.application_id} className="hover:bg-gray-50/80 transition-colors">
+                          <td className="py-3.5 px-4 font-mono font-bold text-gray-900">{item.id || item.application_id || "—"}</td>
+                          <td className="py-3.5 px-4 font-semibold text-gray-900">{item.farmer_name || item.name || "—"}</td>
+                          <td className="py-3.5 px-4">
+                            <span className="font-bold text-[#1A532E] bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                              {item.credit_score_at_application || item.credit_score_snapshot || item.score || "—"}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 font-bold text-gray-900">
+                            {item.requested_amount != null
+                              ? `$${Number(item.requested_amount).toLocaleString()}`
+                              : item.amount_requested != null
+                                ? `$${Number(item.amount_requested).toLocaleString()}`
+                                : "—"}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700' :
+                              status === 'REJECTED' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'
+                            }`}>
+                              {status || "—"}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <button
+                              type="button"
+                              onClick={() => onViewReport && onViewReport(item)}
+                              className="inline-flex items-center gap-1 text-xs font-bold text-[#1A532E] hover:underline cursor-pointer"
+                            >
+                              <span>View Evaluation</span>
+                              <ExternalLink size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

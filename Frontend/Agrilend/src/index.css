@@ -2,8 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  margin: 0;
-  padding: 0;
-  background-color: #FAFBF9;
+@layer base {
+  html {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: #E6EAE0;
+    color: #1A211C;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+/* Custom sleek scrollbar for admin command panels */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #E6EAE0;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #B4BFAC;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #0B5A22;
 }

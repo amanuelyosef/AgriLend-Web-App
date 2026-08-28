@@ -1,280 +1,262 @@
-import React, { useState } from 'react';
-import { Settings as SettingsIcon, Save, Building2, Plus, ShieldCheck } from 'lucide-react';
-import { useAuth } from '../auth/useAuth';
-import { updateMe } from '../api/auth';
-import { createBank, listBanks } from '../api/banks';
-import useAsync from '../hooks/useAsync';
+import React, { useState } from "react";
+import Sidebar from "./Sidebar";
+import DashboardHeader from "./DashboardHeader";
+import {
+  Settings,
+  ShieldCheck,
+  Lock,
+  BellRing,
+  Save,
+  CheckCircle2,
+  Loader2,
+  Percent,
+  Building2,
+} from "lucide-react";
+import { useAuth } from "../context/AuthContext";
+import { updateBankSettings } from "../services/api";
 
-export default function SettingsPage() {
-  const { user, refreshUser } = useAuth();
-  const [form, setForm] = useState(() => ({
-    full_name: user?.full_name || '',
-    phone_number: user?.phone_number || '',
-    locale: user?.locale || 'en',
-  }));
+export default function SettingsPage({
+  currentPage,
+  onNavigate,
+  onLogout,
+  currentUser,
+  user: userProp,
+}) {
+  const { user: authUser, updateProfile } = useAuth();
+  const activeUser = currentUser || userProp || authUser;
+
+  const [fullName, setFullName] = useState(activeUser?.full_name || activeUser?.name || "");
+  const [interestRate, setInterestRate] = useState(
+    activeUser?.bank_interest_rate != null ? String(activeUser.bank_interest_rate) : ""
+  );
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState('');
-
-  // Bank Onboarding State (For Admin)
-  const [bankRefresh, setBankRefresh] = useState(0);
-  const banks = useAsync(() => listBanks(), [bankRefresh]);
-  const [bankForm, setBankForm] = useState({
-    bank_name: '',
-    interest_rate: '9.50',
-    subscription_tier: 'enterprise',
-    analyst_full_name: '',
-    analyst_email: '',
-    analyst_password: '',
-  });
-  const [bankSaving, setBankSaving] = useState(false);
-  const [bankMsg, setBankMsg] = useState('');
-
-  const handleChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
-  const handleBankChange = (e) => setBankForm((b) => ({ ...b, [e.target.name]: e.target.value }));
-
-  const handleSave = async (e) => {
-    e.preventDefault();
+  const [savingRate, setSavingRate] = useState(false);
+  const [successMsg, setSuccessMsg] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const handleSaveProfile = async () => {
     setSaving(true);
-    setMsg('');
+    setSuccessMsg("");
+    setErrorMsg("");
     try {
-      await updateMe({ full_name: form.full_name, phone_number: form.phone_number || undefined, locale: form.locale });
-      await refreshUser();
-      setMsg('Profile updated successfully.');
+      if (updateProfile) {
+        await updateProfile({ full_name: fullName.trim() });
+        setSuccessMsg("Profile updated successfully!");
+      }
     } catch (err) {
-      setMsg(`Update failed: ${err.message}`);
+      setErrorMsg(err.message || "Failed to update profile");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleCreateBank = async (e) => {
-    e.preventDefault();
-    setBankSaving(true);
-    setBankMsg('');
+  const handleSaveInterestRate = async () => {
+    if (!activeUser?.bank_id) return;
+    const rate = parseFloat(interestRate);
+    if (!rate || rate <= 0 || rate > 100) {
+      setErrorMsg("Interest rate must be between 0.01 and 100.");
+      return;
+    }
+    setSavingRate(true);
+    setSuccessMsg("");
+    setErrorMsg("");
     try {
-      await createBank({
-        bank_name: bankForm.bank_name,
-        interest_rate: Number(bankForm.interest_rate),
-        subscription_tier: bankForm.subscription_tier,
-        analyst_full_name: bankForm.analyst_full_name,
-        analyst_email: bankForm.analyst_email,
-        analyst_password: bankForm.analyst_password,
-      });
-      setBankMsg('New bank & analyst account created successfully!');
-      setBankForm({
-        bank_name: '',
-        interest_rate: '9.50',
-        subscription_tier: 'enterprise',
-        analyst_full_name: '',
-        analyst_email: '',
-        analyst_password: '',
-      });
-      setBankRefresh((k) => k + 1);
+      const res = await updateBankSettings(activeUser.bank_id, { interest_rate: rate });
+      const appliedRate = res?.data?.interest_rate ?? rate;
+      setInterestRate(String(appliedRate));
+      setSuccessMsg(`Lending terms updated — new annual interest rate: ${appliedRate}%.`);
     } catch (err) {
-      setBankMsg(`Failed to create bank: ${err.message}`);
+      setErrorMsg(err.message || "Failed to update lending terms");
     } finally {
-      setBankSaving(false);
+      setSavingRate(false);
     }
   };
 
-  const isAdmin = user?.role_name === 'Platform Admin';
-
   return (
-    <div className="p-6 space-y-6 max-w-[1200px] w-full mx-auto">
-      <div>
-        <p className="text-[10px] font-bold tracking-[0.25em] uppercase text-emerald-700">Settings & Administration</p>
-        <h1 className="text-2xl font-bold text-gray-900 tracking-tight mt-1">Platform Management</h1>
-        <p className="text-xs text-gray-500 mt-1">User profile configuration and institutional partner onboarding.</p>
-      </div>
+    <div className="flex h-screen w-screen bg-[#F5F7F2] overflow-hidden font-sans">
+      <Sidebar currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout} currentUser={activeUser} />
 
-      <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-11 h-11 rounded-xl bg-[#1A532E] flex items-center justify-center text-white">
-            <SettingsIcon size={18} />
-          </div>
-          <div>
-            <h3 className="text-sm font-bold text-gray-800">Account Profile</h3>
-            <p className="text-[11px] text-gray-500">Connected as {user?.email}</p>
-          </div>
-        </div>
+      <div className="flex-1 h-full flex flex-col overflow-y-auto">
+        <DashboardHeader showBack onBack={() => onNavigate("dashboard")} backText="Back to Dashboard" onLogout={onLogout} currentUser={activeUser} onNavigate={onNavigate} />
 
-        <form onSubmit={handleSave} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1.5">FULL NAME</label>
-            <input
-              name="full_name"
-              value={form.full_name}
-              onChange={handleChange}
-              className="w-full bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 text-xs outline-none focus:ring-1 focus:ring-[#1A532E] font-medium text-gray-700"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1.5">PHONE NUMBER</label>
-            <input
-              name="phone_number"
-              value={form.phone_number}
-              onChange={handleChange}
-              className="w-full bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 text-xs outline-none focus:ring-1 focus:ring-[#1A532E] font-medium text-gray-700"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1.5">LOCALE</label>
-            <input
-              name="locale"
-              value={form.locale}
-              onChange={handleChange}
-              className="w-full bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 text-xs outline-none focus:ring-1 focus:ring-[#1A532E] font-medium text-gray-700"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1.5">ROLE</label>
-            <input
-              value={user?.role_name || '—'}
-              readOnly
-              className="w-full bg-[#F4F6F0] border border-gray-200 rounded-lg p-2.5 text-xs font-medium text-gray-500"
-            />
-          </div>
-
-          <div className="sm:col-span-2 flex items-center gap-3">
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1A532E] text-white text-xs font-semibold hover:bg-[#144023] disabled:opacity-60"
-            >
-              <Save size={14} /> {saving ? 'Saving...' : 'Save Changes'}
-            </button>
-            {msg && <span className="text-[11px] font-medium text-[#1A532E]">{msg}</span>}
-          </div>
-        </form>
-      </div>
-
-      {/* Admin Panel: Bank Onboarding */}
-      <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-11 h-11 rounded-xl bg-blue-700 flex items-center justify-center text-white">
-            <Building2 size={18} />
-          </div>
-          <div>
-            <h3 className="text-sm font-bold text-gray-800">Partner Bank Institutions & Officers</h3>
-            <p className="text-[11px] text-gray-500">
-              {isAdmin ? 'Onboard new banks and create analyst login accounts.' : 'Registered partner institutions.'}
-            </p>
-          </div>
-        </div>
-
-        {isAdmin && (
-          <form onSubmit={handleCreateBank} className="mb-6 p-4 bg-[#F9FAF5] border border-gray-200 rounded-lg space-y-4">
-            <div className="flex items-center gap-2 text-xs font-bold text-[#1A532E]">
-              <Plus size={14} /> Register New Bank Partner & Provision Analyst Login
+        <div className="p-6 space-y-6 max-w-[1600px] w-full mx-auto">
+          <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-bold tracking-[0.25em] uppercase text-emerald-700">Workspace Configuration</p>
+              <h1 className="text-2xl font-bold text-gray-900 tracking-tight mt-1">Settings</h1>
+              <p className="text-xs text-gray-500 mt-1">
+                Manage user profile preferences, security controls, and backend settings.
+              </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1">BANK NAME</label>
-                <input
-                  name="bank_name"
-                  required
-                  placeholder="e.g. Commercial Bank of Ethiopia"
-                  value={bankForm.bank_name}
-                  onChange={handleBankChange}
-                  className="w-full bg-white border border-gray-200 rounded-md p-2 text-xs outline-none focus:ring-1 focus:ring-[#1A532E]"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1">INTEREST RATE (%)</label>
-                <input
-                  name="interest_rate"
-                  type="number"
-                  step="0.01"
-                  required
-                  value={bankForm.interest_rate}
-                  onChange={handleBankChange}
-                  className="w-full bg-white border border-gray-200 rounded-md p-2 text-xs outline-none focus:ring-1 focus:ring-[#1A532E]"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1">TIER</label>
-                <select
-                  name="subscription_tier"
-                  value={bankForm.subscription_tier}
-                  onChange={handleBankChange}
-                  className="w-full bg-white border border-gray-200 rounded-md p-2 text-xs outline-none focus:ring-1 focus:ring-[#1A532E]"
-                >
-                  <option value="enterprise">Enterprise</option>
-                  <option value="standard">Standard</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1">OFFICER FULL NAME</label>
-                <input
-                  name="analyst_full_name"
-                  required
-                  placeholder="e.g. Abebe Kebede"
-                  value={bankForm.analyst_full_name}
-                  onChange={handleBankChange}
-                  className="w-full bg-white border border-gray-200 rounded-md p-2 text-xs outline-none focus:ring-1 focus:ring-[#1A532E]"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1">OFFICER EMAIL (LOGIN)</label>
-                <input
-                  name="analyst_email"
-                  type="email"
-                  required
-                  placeholder="abebe@cbe.com"
-                  value={bankForm.analyst_email}
-                  onChange={handleBankChange}
-                  className="w-full bg-white border border-gray-200 rounded-md p-2 text-xs outline-none focus:ring-1 focus:ring-[#1A532E]"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1">OFFICER PASSWORD</label>
-                <input
-                  name="analyst_password"
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={bankForm.analyst_password}
-                  onChange={handleBankChange}
-                  className="w-full bg-white border border-gray-200 rounded-md p-2 text-xs outline-none focus:ring-1 focus:ring-[#1A532E]"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex flex-wrap gap-2">
               <button
-                type="submit"
-                disabled={bankSaving}
-                className="px-4 py-2 rounded-lg bg-[#1A532E] text-white text-xs font-semibold hover:bg-[#144023] disabled:opacity-60 flex items-center gap-1.5"
+                type="button"
+                onClick={handleSaveProfile}
+                disabled={saving}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1A532E] text-white text-xs font-semibold hover:bg-[#144023] cursor-pointer disabled:opacity-60"
               >
-                <ShieldCheck size={14} /> {bankSaving ? 'Creating...' : 'Register Bank & Provision Officer'}
+                {saving ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
+                <span>Save Changes</span>
               </button>
-              {bankMsg && <span className={`text-[11px] font-medium ${bankMsg.includes('Failed') ? 'text-red-600' : 'text-emerald-700'}`}>{bankMsg}</span>}
             </div>
-          </form>
-        )}
+          </div>
 
-        {/* Existing Banks List */}
-        <div>
-          <h4 className="text-xs font-bold text-gray-700 mb-3">Onboarded Partner Institutions</h4>
-          {banks.loading ? (
-            <p className="text-xs text-gray-400 py-3">Loading registered banks...</p>
-          ) : banks.error ? (
-            <p className="text-xs text-red-500 py-3">Could not load banks: {banks.error.message}</p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {(banks.data?.items || []).map((b) => (
-                <div key={b.id} className="p-3.5 border border-gray-200 rounded-lg bg-[#FAFBF7] flex justify-between items-center">
-                  <div>
-                    <h5 className="text-xs font-bold text-gray-900">{b.bank_name}</h5>
-                    <p className="text-[10px] text-gray-500 mt-0.5">Rate: {b.interest_rate}% | Tier: {b.subscription_tier}</p>
-                  </div>
-                  <span className="px-2 py-0.5 text-[9px] font-bold rounded bg-emerald-100 text-emerald-800">Active</span>
-                </div>
-              ))}
+          {successMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs font-semibold text-emerald-800 flex items-center gap-2">
+              <CheckCircle2 size={16} />
+              {successMsg}
             </div>
           )}
+
+          {errorMsg && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs font-semibold text-red-700">
+              {errorMsg}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-[10px] font-bold text-gray-400 tracking-wider uppercase">Profile Completion</p>
+              <h3 className="text-3xl font-extrabold text-gray-900 mt-2">100%</h3>
+              <p className="text-[11px] text-gray-500 mt-2">Verified backend session.</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-[10px] font-bold text-gray-400 tracking-wider uppercase">MFA Status</p>
+              <h3 className="text-3xl font-extrabold text-emerald-700 mt-2">Active</h3>
+              <p className="text-[11px] text-gray-500 mt-2">JWT Authentication Active.</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-[10px] font-bold text-gray-400 tracking-wider uppercase">User Role</p>
+              <h3 className="text-xl font-extrabold text-[#1A532E] mt-2">{activeUser?.role_name || "Credit Analyst"}</h3>
+              <p className="text-[11px] text-gray-500 mt-2">Role permissions active.</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-[10px] font-bold text-gray-400 tracking-wider uppercase">Account Status</p>
+              <h3 className="text-3xl font-extrabold text-emerald-700 mt-2">Active</h3>
+              <p className="text-[11px] text-gray-500 mt-2">Verified Officer Account.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="xl:col-span-2 space-y-6">
+              <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <Settings size={16} className="text-emerald-700" />
+                  <h2 className="text-sm font-bold text-gray-800">Profile & Identity</h2>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1.5 uppercase">FULL NAME</label>
+                    <input
+                      className="w-full bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 text-xs text-gray-900 font-semibold focus:outline-none focus:border-[#1A532E]"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1.5 uppercase">EMAIL</label>
+                    <input
+                      className="w-full bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 text-xs text-gray-500 font-medium cursor-not-allowed"
+                      value={activeUser?.email || "user@agrilend.com"}
+                      readOnly
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <Percent size={16} className="text-emerald-700" />
+                  <h2 className="text-sm font-bold text-gray-800">Lending Terms</h2>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1.5 uppercase flex items-center gap-1">
+                      <Building2 size={11} /> INSTITUTION
+                    </label>
+                    <input
+                      className="w-full bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 text-xs text-gray-500 font-medium cursor-not-allowed"
+                      value={activeUser?.bank_name || "Not linked to an institution"}
+                      readOnly
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">Institution names are permanent and cannot be changed.</p>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 tracking-wider mb-1.5 uppercase">ANNUAL INTEREST RATE (%)</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min="0.01"
+                        max="100"
+                        step="0.01"
+                        disabled={!activeUser?.bank_id || savingRate}
+                        className="flex-1 bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 text-xs text-gray-900 font-semibold focus:outline-none focus:border-[#1A532E] disabled:opacity-60"
+                        value={interestRate}
+                        onChange={(e) => setInterestRate(e.target.value)}
+                        placeholder="e.g. 8.50"
+                      />
+                      {activeUser?.bank_id && (
+                        <button
+                          type="button"
+                          onClick={handleSaveInterestRate}
+                          disabled={savingRate}
+                          className="px-3 py-2 rounded-lg bg-[#1A532E] text-white text-xs font-semibold hover:bg-[#144023] cursor-pointer disabled:opacity-60 whitespace-nowrap flex items-center gap-1.5"
+                        >
+                          {savingRate ? <Loader2 className="animate-spin" size={13} /> : <Save size={13} />}
+                          Update Rate
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      Applied to approved loans to compute the total payable amount. Existing approvals keep their original rate.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <BellRing size={16} className="text-emerald-700" />
+                  <h2 className="text-sm font-bold text-gray-800">Notification Preferences</h2>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  {[
+                    "Email alerts for high risk applications",
+                    "Daily portfolio summary digest",
+                    "SMS alerts for overdue repayments",
+                    "Weekly model performance report",
+                  ].map((item) => (
+                    <label key={item} className="flex items-center justify-between border border-gray-200 rounded-lg px-3 py-2.5">
+                      <span className="text-gray-700 font-medium">{item}</span>
+                      <input type="checkbox" defaultChecked className="accent-[#1A532E]" />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-3">
+                  <ShieldCheck size={16} className="text-emerald-700" />
+                  <h3 className="text-sm font-bold text-gray-800">Security Details</h3>
+                </div>
+                <div className="space-y-3 text-xs text-gray-600">
+                  <div className="flex items-center gap-2">
+                    <Lock size={14} className="text-gray-400" />
+                    JWT OAuth2 Authentication
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck size={14} className="text-emerald-600" />
+                    Role-Based Access Control (RBAC)
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

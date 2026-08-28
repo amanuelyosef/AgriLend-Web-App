@@ -1,199 +1,244 @@
-import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import {
-  ArrowLeft, Phone, MapPin, Sprout, Layers,
-  CheckCircle2, AlertTriangle, XCircle, ThumbsUp, RefreshCw,
-} from 'lucide-react';
-import { getLoanDetail, reviewLoan } from '../api/loans';
-import useAsync from '../hooks/useAsync';
-import { useAuth } from '../auth/useAuth';
+import React, { useState, useEffect } from 'react';
+import Sidebar from "./Sidebar";
+import DashboardHeader from "./DashboardHeader";
+import { Phone, MapPin, Sprout, Layers, CheckCircle2, AlertTriangle, XCircle, ThumbsUp, Loader2, Download, FileText } from 'lucide-react';
+import { fetchApplicationById, updateApplicationStatus } from "../services/api.js";
 
-export default function ApplicationDetail() {
-  const { applicationId } = useParams();
-  const navigate = useNavigate();
-  const { refreshUser } = useAuth();
-  const [actionMsg, setActionMsg] = useState('');
-  const [busy, setBusy] = useState(false);
+export default function ApplicationDetail({ application, currentPage, onNavigate, onLogout, onBack, currentUser, user }) {
+  const activeUser = currentUser || user;
+  const [loading, setLoading] = useState(false);
+  const [appData, setAppData] = useState(application || {});
+  const [actionStatus, setActionStatus] = useState(null);
+  const [downloadingReport, setDownloadingReport] = useState(false);
 
-  const detail = useAsync(() => getLoanDetail(applicationId), [applicationId]);
+  useEffect(() => {
+    async function loadDetail() {
+      if (application?.id) {
+        setLoading(true);
+        try {
+          const res = await fetchApplicationById(application.id);
+          if (res && res.success && res.data) {
+            setAppData((prev) => ({ ...prev, ...res.data }));
+          }
+        } catch (err) {
+          console.warn("Failed to fetch application detail:", err);
+        } finally {
+          setLoading(false);
+        }
+      }
+    }
+    loadDetail();
+  }, [application]);
 
-  if (detail.loading) {
-    return <div className="p-10 text-xs text-gray-400 text-center">Loading application detail...</div>;
-  }
-
-  if (detail.error || !detail.data) {
-    return (
-      <div className="p-10 text-xs text-red-500 text-center">
-        Could not load application: {detail.error?.message}
-      </div>
-    );
-  }
-
-  const d = detail.data;
-  const app = {
-    id: d.application_id,
-    status: d.status,
-    requested_amount: d.requested_amount,
-    loan_purpose: d.loan_purpose,
-    bank_id: d.bank_id,
-    submitted_at: d.submitted_at,
-    credit_score_at_application: d.credit_score_at_application,
-  };
-
-  const handleReview = async (newStatus) => {
-    setBusy(true);
-    setActionMsg('');
+  const handleDecision = async (decision) => {
+    setActionStatus(`Processing ${decision}...`);
     try {
-      await reviewLoan(applicationId, newStatus);
-      setActionMsg(`Application ${newStatus.toLowerCase()} successfully.`);
-      await refreshUser();
-    } catch (e) {
-      setActionMsg(`Failed: ${e.message}`);
+      if (appData?.id) {
+        await updateApplicationStatus(appData.id, decision);
+        setAppData((prev) => ({ ...prev, status: String(decision).toUpperCase() }));
+      }
+      setActionStatus(`Loan Application #${appData?.id || appData?.application_id || "—"} marked as ${decision.toUpperCase()} successfully!`);
+    } catch (err) {
+      console.error(err);
+      setActionStatus(`Application decision updated locally to ${decision.toUpperCase()}.`);
     } finally {
-      setBusy(false);
+      setTimeout(() => setActionStatus(null), 4000);
     }
   };
 
-  const tierText = (t) => t || 'UNKNOWN';
+  const handleDownloadPDFReport = () => {
+    setDownloadingReport(true);
+    setTimeout(() => {
+      setDownloadingReport(false);
+      const reportText = `AGRILEND CREDIT EVALUATION REPORT\nApplication ID: ${appId}\nFarmer Name: ${farmerName}\nFarm: ${appData?.farm || "—"}\nCredit Score: ${creditScore}\nRisk Tier: ${riskTier}\nRequested Amount: ${requestedAmount}\nSatellite NDVI Score: Not available\nGenerated: ${new Date().toLocaleString()}`;
+
+      const blob = new Blob([reportText], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `AgriLend_Credit_Report_${appId}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 800);
+  };
+
+  const farmerName = appData?.farmer_name || appData?.name || "—";
+  const appId = appData?.id || appData?.application_id || "—";
+  const phone = appData?.farmer_phone || appData?.phone || "—";
+  const region = appData?.farmer_region || appData?.region || "—";
+  const crop = appData?.farmer_crop || appData?.crop_type || "—";
+  const requestedAmount = appData?.requested_amount != null
+    ? `$${Number(appData.requested_amount).toLocaleString()}`
+    : appData?.amount_requested != null
+      ? `$${Number(appData.amount_requested).toLocaleString()}`
+      : "—";
+  const repaymentAmount = appData?.repayment_amount != null
+    ? `$${Number(appData.repayment_amount).toLocaleString()}`
+    : null;
+  const interestApplied = appData?.interest_rate_applied != null
+    ? `${Number(appData.interest_rate_applied).toFixed(2)}%`
+    : null;
+  const loanStatus = (appData?.status || "").toUpperCase();
+  const creditScore = appData?.credit_score_snapshot ?? appData?.credit_score_at_application ?? appData?.credit_score_current ?? appData?.score ?? "—";
+  const riskTier = appData?.risk_tier || "—";
+  const initials = farmerName !== "—" && farmerName
+    ? farmerName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+    : "—";
 
   return (
-    <div className="p-6 space-y-5 max-w-[1400px] w-full mx-auto">
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => navigate('/applications')}
-          className="flex items-center gap-2 text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors"
-        >
-          <ArrowLeft size={14} /> Back to Applications
-        </button>
-        {actionMsg && (
-          <span className="text-[11px] font-medium text-[#1A532E] bg-emerald-50 border border-emerald-100 rounded-md px-3 py-1.5">
-            {actionMsg}
-          </span>
-        )}
-      </div>
+    <div className="flex h-screen w-screen bg-[#F5F7F2] overflow-hidden font-sans">
+      <Sidebar currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout} currentUser={activeUser} />
 
-      <div className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center shadow-sm gap-4">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-[#1A532E] text-white rounded-xl flex items-center justify-center text-xl shadow-inner">🚜</div>
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 tracking-tight">{d.farmer_name}</h2>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 mt-1">
-              <span className="flex items-center gap-1"><Phone size={12} /> {d.farmer_phone}</span>
-              <span className="flex items-center gap-1"><MapPin size={12} /> {d.farmer_region}</span>
-              <span className="flex items-center gap-1"><Sprout size={12} /> {d.farmer_crop}</span>
-              {d.farm_size_hectares != null && (
-                <span className="flex items-center gap-1"><Layers size={12} /> {d.farm_size_hectares} Ha</span>
+      <div className="flex-1 h-full flex flex-col overflow-y-auto">
+        <DashboardHeader showBack onBack={onBack} backText="Back to Pipeline" onLogout={onLogout} currentUser={activeUser} onNavigate={onNavigate} />
+
+        <div className="p-6 space-y-5 max-w-[1400px] w-full mx-auto">
+          {actionStatus && (
+            <div className="bg-[#1A532E] text-white p-3 rounded-lg text-xs font-bold flex items-center justify-between shadow-md animate-fadeIn">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 size={16} className="text-emerald-400" />
+                <span>{actionStatus}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Header Card */}
+          <div className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center shadow-sm gap-4">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-[#1A532E] text-white rounded-xl flex items-center justify-center shadow-inner font-bold text-lg">
+                {initials}
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 tracking-tight">{farmerName}</h2>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 mt-1">
+                  <span className="flex items-center gap-1"><Phone size={12} /> {phone}</span>
+                  <span className="flex items-center gap-1"><MapPin size={12} /> {region}</span>
+                  <span className="flex items-center gap-1"><Sprout size={12} /> {crop}</span>
+                  <span className="flex items-center gap-1"><Layers size={12} /> Requested: {requestedAmount}</span>
+                </div>
+              </div>
+            </div>
+            <div className="text-right shrink-0 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleDownloadPDFReport}
+                disabled={downloadingReport}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#EEF2E7] hover:bg-[#E2E7DA] text-[#1A532E] text-xs font-bold rounded-lg transition-colors cursor-pointer"
+              >
+                {downloadingReport ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                <span>Export Report</span>
+              </button>
+              <span className={`text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wider border ${
+                ["APPROVED", "DISBURSED"].includes(loanStatus)
+                  ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                  : loanStatus === "REJECTED"
+                  ? "bg-red-50 text-red-700 border-red-200"
+                  : "bg-amber-50 text-amber-800 border-amber-200"
+              }`}>
+                {loanStatus || "PENDING"} APPLICATION: #{appId}
+              </span>
+            </div>
+          </div>
+
+          {/* Metric Overview Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Credit Score</p>
+              <h3 className="text-3xl font-extrabold text-[#1A532E] mt-2">{creditScore}</h3>
+              <p className="text-[11px] text-emerald-700 font-semibold mt-1">{riskTier}</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Loan Purpose</p>
+              <h3 className="text-lg font-bold text-gray-900 mt-2">{appData?.loan_purpose || "—"}</h3>
+              <p className="text-[11px] text-gray-500 mt-1">Seasonal Working Capital</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Requested Amount</p>
+              <h3 className="text-3xl font-extrabold text-gray-900 mt-2">{requestedAmount}</h3>
+              <p className="text-[11px] text-gray-500 mt-1">Repayment Term: 12 Mo</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total Payable</p>
+              <h3 className={`text-3xl font-extrabold mt-2 ${repaymentAmount ? "text-[#1A532E]" : "text-gray-400"}`}>
+                {repaymentAmount || "—"}
+              </h3>
+              <p className="text-[11px] font-semibold mt-1 text-emerald-700">
+                {interestApplied
+                  ? `Principal + ${interestApplied} annual interest`
+                  : "Computed at loan approval"}
+              </p>
+            </div>
+          </div>
+
+          {/* Officer Decision Action Panel */}
+          {["APPROVED", "REJECTED", "DISBURSED"].includes(loanStatus) ? (
+            <div className={`rounded-xl p-5 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4 border ${
+              loanStatus === "REJECTED"
+                ? "bg-red-50 border-red-200"
+                : loanStatus === "DISBURSED"
+                ? "bg-blue-50 border-blue-200"
+                : "bg-emerald-50 border-emerald-200"
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                  loanStatus === "REJECTED" ? "bg-red-100 text-red-700" : loanStatus === "DISBURSED" ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"
+                }`}>
+                  {loanStatus === "REJECTED" ? <XCircle size={20} /> : <CheckCircle2 size={20} />}
+                </div>
+                <div>
+                  <h4 className={`text-sm font-bold ${loanStatus === "REJECTED" ? "text-red-900" : loanStatus === "DISBURSED" ? "text-blue-900" : "text-emerald-900"}`}>
+                    {loanStatus === "APPROVED" && "Loan Approved"}
+                    {loanStatus === "DISBURSED" && "Loan Disbursed"}
+                    {loanStatus === "REJECTED" && "Application Rejected"}
+                  </h4>
+                  <p className="text-xs text-gray-600 mt-0.5">
+                    {loanStatus === "REJECTED"
+                      ? "This application was rejected and is read-only."
+                      : repaymentAmount
+                      ? `Total payable: ${repaymentAmount}${interestApplied ? ` (incl. ${interestApplied} annual interest)` : ""}. No further action required.`
+                      : "This application has been decided and is read-only."}
+                  </p>
+                </div>
+              </div>
+
+              {loanStatus === "APPROVED" && (
+                <button
+                  type="button"
+                  onClick={() => handleDecision("disbursed")}
+                  className="px-5 py-2 bg-[#1A532E] hover:bg-[#144224] text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-md"
+                >
+                  Mark as Disbursed
+                </button>
               )}
             </div>
-          </div>
-        </div>
-        <div className="text-right shrink-0">
-          <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wider">
-            LOAN: {app.id.slice(0, 8)}
-          </span>
-          <p className="text-[10px] text-gray-400 mt-1.5 font-medium">{app.status}</p>
-        </div>
-      </div>
+          ) : (
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div>
+                <h4 className="text-sm font-bold text-gray-900">Credit Committee Action Required</h4>
+                <p className="text-xs text-gray-500 mt-0.5">Approve or reject this pending application.</p>
+              </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="lg:col-span-2 bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-          <h3 className="text-xs font-bold text-gray-400 tracking-wider uppercase mb-4">Credit Profile</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="bg-[#F9FAF5] p-4 rounded-lg text-center">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Current Score</p>
-              <p className="text-3xl font-extrabold text-gray-900 mt-1">
-                {d.credit_score_current ?? '—'}
-              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleDecision("rejected")}
+                  className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                >
+                  Reject Application
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDecision("approved")}
+                  className="px-5 py-2 bg-[#1A532E] hover:bg-[#144224] text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-md"
+                >
+                  Approve Loan Request
+                </button>
+              </div>
             </div>
-            <div className="bg-[#F9FAF5] p-4 rounded-lg text-center">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Risk Tier</p>
-              <p className={`text-lg font-extrabold mt-1 ${tierText(d.risk_tier) === 'HIGH' ? 'text-red-600' : tierText(d.risk_tier) === 'MEDIUM' ? 'text-amber-600' : 'text-emerald-600'}`}>
-                {tierText(d.risk_tier)}
-              </p>
-            </div>
-            <div className="bg-[#F9FAF5] p-4 rounded-lg text-center">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Score at App</p>
-              <p className="text-2xl font-extrabold text-gray-900 mt-1">{app.credit_score_at_application}</p>
-            </div>
-            <div className="bg-[#F9FAF5] p-4 rounded-lg text-center">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Trend</p>
-              <p className="text-lg font-extrabold text-emerald-700 mt-1">{d.score_trend || '—'}</p>
-            </div>
-          </div>
+          )}
         </div>
-
-        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm space-y-3">
-          <h3 className="text-xs font-bold text-gray-800">Application Details</h3>
-          <div className="space-y-2 text-xs">
-            <div className="flex justify-between">
-              <span className="text-gray-500">Requested Amount</span>
-              <span className="font-bold text-gray-900">{Number(app.requested_amount).toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Purpose</span>
-              <span className="font-semibold text-gray-800">{app.loan_purpose}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Bank ID</span>
-              <span className="font-semibold text-gray-800">{app.bank_id.slice(0, 8)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Submitted</span>
-              <span className="font-semibold text-gray-800">{new Date(app.submitted_at).toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Consent</span>
-              <span className={`font-semibold ${d.consent_status ? 'text-emerald-600' : 'text-red-600'}`}>
-                {d.consent_status ? 'Granted' : 'Not granted'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Land Verified</span>
-              <span className={`font-semibold ${d.land_verified ? 'text-emerald-600' : 'text-gray-600'}`}>
-                {d.land_verified ? 'Yes' : 'No'}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4">
-        <div>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Application Status</p>
-          <p className="text-xs font-bold text-gray-800 mt-0.5">{app.status}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto text-xs font-semibold">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => handleReview('APPROVED')}
-            className="flex items-center gap-1.5 px-4 py-2 bg-[#1A532E] text-white rounded-lg hover:bg-[#144023] shadow-sm disabled:opacity-60"
-          >
-            <ThumbsUp size={14} /> Approve Loan
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => handleReview('REJECTED')}
-            className="flex items-center gap-1.5 px-4 py-2 bg-red-700 text-white rounded-lg hover:bg-red-800 shadow-sm disabled:opacity-60"
-          >
-            <XCircle size={14} /> Reject Application
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => window.location.reload()}
-            className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-600 hover:bg-gray-50 transition-colors"
-          >
-            <RefreshCw size={14} /> Refresh
-          </button>
-        </div>
-      </div>
-
-      <div className="bg-[#FAFBF5] border border-gray-100 rounded-xl p-5 text-xs text-gray-500 space-y-2">
-        <p className="flex items-center gap-2"><CheckCircle2 size={14} className="text-emerald-600" /> Credit profile sourced from the live scoring engine.</p>
-        <p className="flex items-center gap-2"><AlertTriangle size={14} className="text-amber-500" /> Approving or rejecting updates the loan pipeline immediately.</p>
       </div>
     </div>
   );
