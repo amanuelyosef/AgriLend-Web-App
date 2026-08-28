@@ -23,7 +23,7 @@ router = APIRouter(prefix="/loans", tags=["Loans"])
 async def create_loan(
     data: LoanApplicationCreate,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(require_roles("Farmer", "Platform Admin")),
+    _: dict = Depends(require_roles("Farmer", "Bank Analyst", "Bank Administrator", "Loan Officer", "Platform Admin")),
 ):
     credit_service = CreditService(db)
     latest = await credit_service.get_latest_score(str(data.farmer_id))
@@ -135,7 +135,7 @@ async def review_loan(
     app_id: str,
     data: LoanReviewRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(require_roles("Loan Officer", "Bank Analyst", "Platform Admin")),
+    current_user: dict = Depends(require_roles("Loan Officer", "Bank Analyst", "Bank Administrator", "Platform Admin")),
 ):
     service = LoanService(db)
     app = await service.review_application(app_id, data.status, current_user["sub"])

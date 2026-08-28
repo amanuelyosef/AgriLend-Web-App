@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from "./Sidebar";
 import DashboardHeader from "./DashboardHeader";
-import { Plus, ExternalLink, ChevronLeft, ChevronRight, Download, Filter, X, Send, Loader2 } from 'lucide-react';
-import api, { submitLoanApplication, fetchApplications } from "../services/api";
+import { Plus, ExternalLink, ChevronLeft, ChevronRight, Download, Filter, X, Send, Loader2, CheckCircle2, User } from 'lucide-react';
+import api, { submitLoanApplication, fetchApplications, searchFarmers } from "../services/api";
 
 const initialApplications = [];
 
@@ -11,17 +11,42 @@ export default function LoanApplications({ currentPage = "applications", onNavig
   const [loans, setLoans] = useState(initialApplications);
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const [farmerName, setFarmerName] = useState("");
-  const [farmName, setFarmName] = useState("");
+  const [farmersList, setFarmersList] = useState([]);
+  const [selectedFarmerId, setSelectedFarmerId] = useState("");
   const [amount, setAmount] = useState("");
+  const [purpose, setPurpose] = useState("");
+  const [tenure, setTenure] = useState("12");
+  const [gracePeriod, setGracePeriod] = useState("0");
+  const [repaymentSchedule, setRepaymentSchedule] = useState("monthly");
   const [cropType, setCropType] = useState("Maize");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [formSuccess, setFormSuccess] = useState("");
 
   const [appPage, setAppPage] = useState(1);
   const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [selectedRegion, setSelectedRegion] = useState("ALL");
   const [selectedCrop, setSelectedCrop] = useState("ALL");
   const [totalCount, setTotalCount] = useState(0);
+
+  useEffect(() => {
+    async function loadFarmers() {
+      try {
+        const res = await searchFarmers("", { limit: 100 });
+        const list = res.success && Array.isArray(res.data) ? res.data : Array.isArray(res) ? res : (res?.items || []);
+        setFarmersList(list);
+        if (list.length > 0) {
+          setSelectedFarmerId(list[0].id);
+          if (list[0].crop_type || list[0].primary_crop) {
+            setCropType(list[0].crop_type || list[0].primary_crop);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to load farmers for modal:", err);
+      }
+    }
+    loadFarmers();
+  }, []);
 
   const fetchLoans = async () => {
     setLoading(true);
@@ -66,23 +91,43 @@ export default function LoanApplications({ currentPage = "applications", onNavig
 
   const handleNewApplicationSubmit = async (e) => {
     e.preventDefault();
-    if (!farmerName.trim() || !amount) return;
+    if (!selectedFarmerId) {
+      setFormError("Please select a registered farmer.");
+      return;
+    }
+    if (!amount || parseFloat(amount) <= 0) {
+      setFormError("Please enter a valid loan amount.");
+      return;
+    }
     setIsSubmitting(true);
+    setFormError("");
+    setFormSuccess("");
+
     try {
-      await submitLoanApplication({
-        farmerName,
-        farmName,
+      const res = await submitLoanApplication({
+        farmer_id: selectedFarmerId,
         requested_amount: parseFloat(amount),
-        cropType,
+        purpose: purpose.trim() || `Seasonal credit for ${cropType} production`,
+        tenure_months: parseInt(tenure, 10) || 12,
+        grace_period_months: parseInt(gracePeriod, 10) || 0,
+        repayment_schedule: repaymentSchedule,
       });
-      setShowModal(false);
-      setFarmerName("");
-      setFarmName("");
-      setAmount("");
-      fetchLoans();
+
+      if (res.success || res.id) {
+        setFormSuccess("Loan application created successfully!");
+        setTimeout(() => {
+          setShowModal(false);
+          setFormSuccess("");
+          setAmount("");
+          setPurpose("");
+          fetchLoans();
+        }, 1200);
+      } else {
+        setFormError(res.error || "Failed to create loan application.");
+      }
     } catch (err) {
-      console.warn("Submit application fallback:", err);
-      setShowModal(false);
+      console.warn("Submit application error:", err);
+      setFormError(err.message || "Failed to submit loan application.");
     } finally {
       setIsSubmitting(false);
     }
@@ -226,6 +271,182 @@ export default function LoanApplications({ currentPage = "applications", onNavig
           </div>
         </div>
       </div>
+
+      {/* Manual Entry Loan Application Modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 animate-fadeIn">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-[#1A532E] flex items-center justify-center font-bold">
+                  <Plus size={18} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Manual Loan Origination</h3>
+                  <p className="text-xs text-gray-500">Create a loan application for a verified producer.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowModal(false)}
+                className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {formSuccess && (
+              <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs font-semibold flex items-center gap-2">
+                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                <span>{formSuccess}</span>
+              </div>
+            )}
+
+            {formError && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs font-semibold">
+                {formError}
+              </div>
+            )}
+
+            <form onSubmit={handleNewApplicationSubmit} className="mt-4 space-y-4 text-xs font-sans">
+              <div>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                  Registered Farmer <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={selectedFarmerId}
+                  onChange={(e) => {
+                    setSelectedFarmerId(e.target.value);
+                    const chosen = farmersList.find(f => f.id === e.target.value);
+                    if (chosen && (chosen.primary_crop || chosen.crop_type)) {
+                      setCropType(chosen.primary_crop || chosen.crop_type);
+                    }
+                  }}
+                  className="w-full bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-[#1A532E]/20 focus:border-[#1A532E] font-medium text-gray-800"
+                  required
+                >
+                  {farmersList.length === 0 && <option value="">No registered farmers found</option>}
+                  {farmersList.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.full_name || f.name} — {f.region || "Region"} ({f.primary_crop || f.crop_type || "Crop"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                    Requested Amount ($/ETB) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    placeholder="e.g. 5000"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    className="w-full bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-[#1A532E]/20 focus:border-[#1A532E] font-medium text-gray-800"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                    Target Crop
+                  </label>
+                  <select
+                    value={cropType}
+                    onChange={(e) => setCropType(e.target.value)}
+                    className="w-full bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-[#1A532E]/20 focus:border-[#1A532E] font-medium text-gray-800"
+                  >
+                    <option value="Teff">Teff</option>
+                    <option value="Maize">Maize</option>
+                    <option value="Coffee">Coffee</option>
+                    <option value="Wheat">Wheat</option>
+                    <option value="Sugarcane">Sugarcane</option>
+                    <option value="Sesame">Sesame</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                  Loan Purpose / Description
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. High-yield hybrid seeds and drip irrigation kit"
+                  value={purpose}
+                  onChange={(e) => setPurpose(e.target.value)}
+                  className="w-full bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-[#1A532E]/20 focus:border-[#1A532E] font-medium text-gray-800"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                    Tenure (Months)
+                  </label>
+                  <select
+                    value={tenure}
+                    onChange={(e) => setTenure(e.target.value)}
+                    className="w-full bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-[#1A532E]/20 focus:border-[#1A532E] font-medium text-gray-800"
+                  >
+                    <option value="6">6 Months</option>
+                    <option value="12">12 Months (1 Year)</option>
+                    <option value="18">18 Months</option>
+                    <option value="24">24 Months (2 Years)</option>
+                    <option value="36">36 Months (3 Years)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                    Repayment Schedule
+                  </label>
+                  <select
+                    value={repaymentSchedule}
+                    onChange={(e) => setRepaymentSchedule(e.target.value)}
+                    className="w-full bg-[#FAFBF7] border border-gray-200 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-[#1A532E]/20 focus:border-[#1A532E] font-medium text-gray-800"
+                  >
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="at_harvest">At Harvest (Bullet)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-lg transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-5 py-2 bg-[#1A532E] hover:bg-[#144224] text-white font-bold rounded-lg flex items-center gap-1.5 transition-all shadow-md disabled:opacity-60 cursor-pointer"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>Submitting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send size={13} />
+                      <span>Submit Application</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

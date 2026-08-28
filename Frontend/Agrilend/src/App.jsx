@@ -196,7 +196,7 @@ function ProtectedArea() {
   const navigateTo = useCallback((pageKey, options = {}, extraData = null) => {
     if (extraData && (pageKey === "farmerDisplayData" || pageKey === "farmer-display-data")) {
       setSelectedFarmerData(extraData);
-    } else if (options && typeof options === "object" && options.name) {
+    } else if (options && typeof options === "object" && (options.name || options.full_name || options.id || options.national_id || options.email)) {
       setSelectedFarmerData(options);
     }
     let keyToUse = pageKey;

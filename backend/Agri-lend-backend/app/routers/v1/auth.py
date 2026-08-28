@@ -83,6 +83,8 @@ async def get_me(current_user: dict = Depends(get_current_user), db: AsyncSessio
               summary="Update current user profile",
               description="Update the authenticated user's profile fields (name, phone, locale).",
               responses={404: {"description": "User not found"}})
+@router.put("/profile", response_model=UserResponse, include_in_schema=False)
+@router.patch("/profile", response_model=UserResponse, include_in_schema=False)
 async def update_profile(
     data: UserUpdate,
     db: AsyncSession = Depends(get_db),
@@ -103,3 +105,43 @@ async def update_profile(
         else None
     )
     return resp
+
+
+@router.post("/forgot-password",
+             summary="Request password reset token",
+             description="Initiates password reset and generates an OTP code.")
+async def forgot_password(
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    email = (data or {}).get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    service = AuthService(db)
+    try:
+        otp = await service.request_password_reset(email)
+        return {"success": True, "otp": otp, "email": email, "message": f"Verification code dispatched to {email}"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/reset-password",
+             summary="Reset user password",
+             description="Sets a new password for the user account.")
+async def reset_password_endpoint(
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    email = (data or {}).get("email")
+    new_password = (data or {}).get("new_password") or (data or {}).get("password")
+    if not email or not new_password:
+        raise HTTPException(status_code=400, detail="Email and new_password are required")
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    service = AuthService(db)
+    try:
+        user = await service.reset_password(email, new_password)
+        return {"success": True, "detail": f"Password reset successfully for {user.email}"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+

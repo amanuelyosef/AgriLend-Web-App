@@ -163,7 +163,7 @@ async def get_bank_detail(
 async def get_bank(
     bank_id: str,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(require_roles("Bank Administrator", "Platform Admin")),
+    _: dict = Depends(require_roles("Bank Analyst", "Bank Administrator", "Platform Admin")),
 ):
     result = await db.execute(select(BankPartner).where(BankPartner.id == _to_uuid(bank_id)))
     bank = result.scalar_one_or_none()
@@ -182,7 +182,7 @@ async def update_bank_settings(
     data: BankSettingsUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(require_roles("Bank Administrator", "Platform Admin")),
+    current_user: dict = Depends(require_roles("Bank Analyst", "Bank Administrator", "Platform Admin")),
 ):
     result = await db.execute(select(BankPartner).where(BankPartner.id == _to_uuid(bank_id)))
     bank = result.scalar_one_or_none()

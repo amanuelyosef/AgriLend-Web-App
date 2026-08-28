@@ -102,3 +102,14 @@ class RoleResponse(BaseModel):
     description: Optional[str]
 
     model_config = {"from_attributes": True}
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(..., max_length=255)
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str = Field(..., max_length=255)
+    new_password: str = Field(..., min_length=6)
+    otp: Optional[str] = None
+

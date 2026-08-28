@@ -119,9 +119,15 @@ export async function requestPasswordResetOTP(email) {
 
 export async function updateUserProfile(profileData) {
   const newName = profileData.name || profileData.fullName || profileData.full_name;
+  const phone = profileData.phone || profileData.phone_number;
+  const locale = profileData.language || profileData.locale;
 
-  const payload = { name: newName, full_name: newName, fullName: newName, email: profileData.email, phone: profileData.phone, department: profileData.department, branch: profileData.branch, language: profileData.language };
-  const res = await apiRequest("/auth/profile", { method: "PUT", body: JSON.stringify(payload) });
+  const payload = {
+    full_name: newName,
+    phone_number: phone,
+    locale: locale,
+  };
+  const res = await apiRequest("/auth/me", { method: "PATCH", body: JSON.stringify(payload) });
   if (res.success) return res;
   return { success: false, error: res.error || "Profile update failed" };
 }
@@ -144,7 +150,18 @@ export async function fetchApplicationById(id) {
   return res;
 }
 
-export const submitLoanApplication = (data) => apiRequest("/loans/", { method: "POST", body: JSON.stringify(data) });
+export const submitLoanApplication = (data) => {
+  const payload = {
+    farmer_id: data.farmer_id || data.farmerId,
+    requested_amount: parseFloat(data.requested_amount || data.amount),
+    purpose: data.purpose || data.loan_purpose || `Seasonal credit for ${data.cropType || data.crop_type || "agriculture"}`,
+    tenure_months: parseInt(data.tenure_months || data.tenure || 12, 10),
+    grace_period_months: parseInt(data.grace_period_months || 0, 10),
+    repayment_schedule: data.repayment_schedule || "monthly",
+    ...(data.bank_id ? { bank_id: data.bank_id } : {}),
+  };
+  return apiRequest("/loans/", { method: "POST", body: JSON.stringify(payload) });
+};
 
 export const updateApplicationStatus = (id, decision) => {
   const statusMap = { approved: "APPROVED", rejected: "REJECTED", review: "PENDING" };
@@ -353,16 +370,17 @@ export const fetchAdminRiskReport = () => apiRequest("/admin/reports/risk");
 // 7. Admin User & Role Management APIs
 export async function fetchActiveUsersList() {
   const res = await apiRequest("/admin/users");
-  if (!res.success || !Array.isArray(res.data)) {
+  const rawList = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.items) ? res.data.items : [];
+  if (!res.success && rawList.length === 0) {
     return { success: false, error: res.error || "Failed to load users", data: [] };
   }
-  const apiUsers = res.data.map((u, idx) => ({
+  const apiUsers = rawList.map((u, idx) => ({
     id: u.id || u.user_id || `USR-${100 + idx}`,
     name: u.full_name || u.name || (u.email ? u.email.split("@")[0] : "Officer"),
     email: u.email || `user${idx}@agrilend.com`,
-    contact: u.phone || "+254 700 000 000",
+    contact: u.phone || u.phone_number || "+254 700 000 000",
     branch: u.branch || "Central Division",
-    role: u.role === "admin" ? "System Admin" : u.role === "analyst" ? "Credit Analyst" : "Bank Officer",
+    role: u.role_name || (u.role === "admin" ? "Platform Admin" : u.role === "analyst" ? "Bank Analyst" : "Bank Officer"),
     score: u.score || 850,
     status: u.is_active !== false && u.status !== "INACTIVE" && u.status !== "Suspended" ? "Active" : "Suspended",
     flagged: u.status === "Suspended" || u.flagged === true
@@ -371,7 +389,10 @@ export async function fetchActiveUsersList() {
 }
 
 export async function toggleUserStatusAPI(userId, email, newStatus) {
-  return apiRequest(`/admin/users/${userId}/deactivate`, { method: "PATCH", body: JSON.stringify({ status: newStatus }) });
+  if (newStatus === "Active") {
+    return apiRequest(`/admin/users/${userId}/activate`, { method: "POST" });
+  }
+  return apiRequest(`/admin/users/${userId}/deactivate`, { method: "PATCH" });
 }
 
 export const fetchAdminRoles = () => apiRequest("/admin/roles");

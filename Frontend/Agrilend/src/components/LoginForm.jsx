@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { Mail, Lock, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
-import { loginUser, setStoredTokens } from "../services/api";
+import { useAuth } from "../context/AuthContext";
 
 export default function LoginForm({ onLoginSuccess, onForgotPasswordClick, onRequirePasswordReset }) {
+  const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -16,27 +17,12 @@ export default function LoginForm({ onLoginSuccess, onForgotPasswordClick, onReq
     setIsSubmitting(true);
 
     try {
-      // 1. Direct FastAPI Backend Authentication
-      const res = await loginUser({ email: normalizedEmail, password });
-
-      if (res.success && res.data) {
-        const token = res.data.access_token || res.data.token;
-        if (token) {
-          setStoredTokens(token, res.data.refresh_token);
-        }
-
-        const userObj = res.data.user || {
-          email: normalizedEmail,
-          role: res.data.role || "bank",
-          name: res.data.name || normalizedEmail.split("@")[0],
-          fullName: res.data.full_name || res.data.name || normalizedEmail.split("@")[0],
-          full_name: res.data.full_name || res.data.name || normalizedEmail.split("@")[0]
-        };
-
-        localStorage.setItem("agrilend_user", JSON.stringify(userObj));
+      const res = await login(normalizedEmail, password);
+      if (res && res.success && res.user) {
+        const userObj = res.user;
 
         // Check if first-time password reset is required
-        if (res.data.user?.must_change_password || password.startsWith("AgriLend#")) {
+        if (userObj?.must_change_password || password.startsWith("AgriLend#")) {
           setIsSubmitting(false);
           if (onRequirePasswordReset) {
             onRequirePasswordReset(userObj, password);
@@ -51,11 +37,11 @@ export default function LoginForm({ onLoginSuccess, onForgotPasswordClick, onReq
         return;
       }
     } catch (err) {
-      console.warn("FastAPI backend login attempt error:", err);
+      console.warn("FastAPI backend login error:", err);
+      setAuthError(err.message || "Authentication failed. Invalid email or password.");
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setIsSubmitting(false);
-    setAuthError("Authentication failed. Invalid email or password.");
   };
 
   return (

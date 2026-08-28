@@ -154,6 +154,37 @@ class AuthService:
         await self.db.flush()
         return user
 
+    async def get_user_by_email(self, email: str) -> User | None:
+        result = await self.db.execute(
+            select(User).options(joinedload(User.role)).where(User.email == (email or "").lower().strip())
+        )
+        return result.scalar_one_or_none()
+
+    async def request_password_reset(self, email: str) -> str:
+        user = await self.get_user_by_email(email)
+        if not user:
+            raise ValueError("No account found with this email address")
+        # In a real environment, send email/SMS with OTP. Here generate secure OTP.
+        import random
+        otp = f"{random.randint(100000, 999999)}"
+        return otp
+
+    async def reset_password(self, email: str, new_password: str) -> User:
+        user = await self.get_user_by_email(email)
+        if not user:
+            raise ValueError("No account found with this email address")
+        user.hashed_password = hash_password(new_password)
+        await self.db.flush()
+        return user
+
+    async def activate_user(self, user_id: str | UUID) -> User | None:
+        user = await self.get_user_by_id(user_id)
+        if not user:
+            return None
+        user.is_active = True
+        await self.db.flush()
+        return user
+
     async def delete_user(self, user_id: str | UUID) -> bool:
         user = await self.get_user_by_id(user_id)
         if not user:

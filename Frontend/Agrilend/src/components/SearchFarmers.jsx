@@ -49,23 +49,27 @@ export default function SearchFarmers({ currentPage, onNavigate, onLogout, curre
     let isMounted = true;
     async function loadRealBackendFarmers() {
       try {
-        const res = await api.get("/farmers");
-        if (isMounted && res && Array.isArray(res.items) && res.items.length > 0) {
-          const formatted = res.items.map((item) => ({
+        const res = await searchFarmers("", { limit: 100 });
+        const list = res.success && Array.isArray(res.data) ? res.data : Array.isArray(res) ? res : (res?.items || []);
+        if (isMounted && list.length > 0) {
+          const formatted = list.map((item) => ({
             id: item.id || null,
             full_name: item.full_name || item.name || "—",
             phone_number: item.phone_number || item.phone || "—",
+            national_id: item.national_id || item.nationalId || "—",
             email: item.email || "—",
             region: item.region || "—",
-            primary_crop: item.primary_crop || item.crop_type || "—",
-            size_hectares: item.size_hectares != null ? item.size_hectares : null,
+            primary_crop: item.primary_crop || item.crop_type || item.crop || "—",
+            size_hectares: item.size_hectares != null ? item.size_hectares : item.farm_size_hectares != null ? item.farm_size_hectares : null,
+            score: item.credit_score ?? item.score ?? null,
+            risk_tier: item.risk_tier ?? item.riskTier ?? null,
           }));
 
           setAllFarmersList(formatted);
           setDisplayedFarmers(formatted);
         }
       } catch (err) {
-        console.log("Using primary farmer registry dataset.");
+        console.log("Using primary farmer registry dataset.", err);
       }
     }
     loadRealBackendFarmers();
